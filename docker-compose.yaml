@@ -16,8 +16,33 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  backend:
+  auth:
     build: ./backend
+    command: ["uvicorn", "app.auth_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: pos
+      MYSQL_USER: pos
+      MYSQL_PASSWORD: "public-demo-pos"
+      # Public demo admin only. Supply environment overrides for non-demo use.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Public-Demo-Admin-2026}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/auth/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  products:
+    build: ./backend
+    command: ["uvicorn", "app.product_service:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
@@ -25,12 +50,50 @@ services:
       MYSQL_USER: pos
       MYSQL_PASSWORD: "public-demo-pos"
     depends_on:
-      mysql:
+      auth:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:8000:8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/products/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  orders:
+    build: ./backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: pos
+      MYSQL_USER: pos
+      MYSQL_PASSWORD: "public-demo-pos"
+    depends_on:
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/orders/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  kitchen:
+    build: ./backend
+    command: ["uvicorn", "app.kitchen_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: pos
+      MYSQL_USER: pos
+      MYSQL_PASSWORD: "public-demo-pos"
+    depends_on:
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/kitchen/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,7 +105,13 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      backend:
+      auth:
+        condition: service_healthy
+      products:
+        condition: service_healthy
+      orders:
+        condition: service_healthy
+      kitchen:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
@@ -51,9 +120,6 @@ services:
       retries: 3
     restart: unless-stopped
 
+volumes:
   mysql-data:
-<<<<<<< HEAD
-  
-=======
 
->>>>>>> c4a7400 (Modified application)

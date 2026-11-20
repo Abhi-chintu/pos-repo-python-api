@@ -1,97 +1,66 @@
 import json
-from contextlib import asynccontextmanager
-from typing import Annotated, AsyncIterator
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import HTTPException, Query
 from pymysql import IntegrityError
 from pymysql.constants import ER
 from pymysql.cursors import DictCursor
 
-from app.database import DatabaseConfig, connect, initialize
-from app.schemas import Checkout, Order, Product, ProductCreate, StockUpdate
+from app.database import DatabaseConfig, connect
+from app.order_data import lock_progress, read_order, record_progress
+from app.schemas import CartItem, Checkout, Order, OrderCancel, OrderUpdate
+from app.security import AdminUser, CurrentUser, SalesUser
+from app.service import create_service
 
 
-def read_order(cursor: DictCursor, order_id: int) -> dict:
-    cursor.execute(
-        "SELECT id, created_at, payment_method, total_cents FROM orders WHERE id = %s",
-        (order_id,),
-    )
-    row = cursor.fetchone()
-    if row is None:
-        raise HTTPException(404, "Receipt not found.")
-    cursor.execute(
-        """SELECT product_id, name, quantity, unit_price_cents
-           FROM order_items WHERE order_id = %s ORDER BY id""",
-        (order_id,),
-    )
-    return {
-        **row,
-        "created_at": row["created_at"].isoformat(timespec="milliseconds") + "Z",
-        "items": list(cursor.fetchall()),
-    }
+def replace_items(cursor: DictCursor, order_id: int, items: list[CartItem], previous: list[dict]) -> int:
+    old = {item["product_id"]: item for item in previous}
+    new = {item.product_id: item.quantity for item in items}
+    snapshots = []
+    total = 0
+    # Lock inventory in a consistent order for checkout, edits and cancellation.
+    for product_id in sorted(old.keys() | new.keys()):
+        cursor.execute("SELECT * FROM products WHERE id = %s FOR UPDATE", (product_id,))
+        product = cursor.fetchone()
+        if product is None:
+            raise HTTPException(404, f"Product {product_id} not found.")
+        previous_quantity = old[product_id]["quantity"] if product_id in old else 0
+        quantity = new.get(product_id, 0)
+        additional = quantity - previous_quantity
+        if additional > 0 and not product["active"]:
+            raise HTTPException(409, f"{product['name']} has been archived.")
+        if additional > product["stock"]:
+            raise HTTPException(409, f"Not enough stock for {product['name']}.")
+        if product["stock"] - additional > 1_000_000:
+            raise HTTPException(409, f"Restoring {product['name']} would exceed the stock limit. Adjust inventory first.")
+        cursor.execute(
+            "UPDATE products SET stock = stock - %s, ever_ordered = TRUE WHERE id = %s",
+            (additional, product_id),
+        )
+        if quantity:
+            price = old[product_id]["unit_price_cents"] if product_id in old else product["price_cents"]
+            name = old[product_id]["name"] if product_id in old else product["name"]
+            snapshots.append((order_id, product_id, name, quantity, price))
+            total += quantity * price
+    cursor.execute("DELETE FROM order_items WHERE order_id = %s", (order_id,))
+    if snapshots:
+        cursor.executemany(
+            """INSERT INTO order_items
+               (order_id, product_id, name, quantity, unit_price_cents)
+               VALUES (%s, %s, %s, %s, %s)""",
+            snapshots,
+        )
+    return total
 
 
-def create_app(database_config: DatabaseConfig | None = None) -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.database = database_config or DatabaseConfig.from_env()
-        initialize(app.state.database)
-        yield
+def create_app(database_config: DatabaseConfig | None = None):
+    app = create_service("Counter Orders", "/api/orders", database_config)
 
-    app = FastAPI(title="Counter POS API", version="1.0.0", lifespan=lifespan)
-
-    @app.middleware("http")
-    async def api_headers(request: Request, call_next):
-        response = await call_next(request)
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        return response
-
-    @app.get("/api/health")
-    def health() -> dict[str, str]:
-        with connect(app.state.database) as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-        return {"status": "ok"}
-
-    @app.get("/api/products", response_model=list[Product])
-    def products() -> list[dict]:
-        with connect(app.state.database) as cursor:
-            cursor.execute("SELECT * FROM products ORDER BY name")
-            return list(cursor.fetchall())
-
-    @app.post("/api/products", response_model=Product, status_code=status.HTTP_201_CREATED)
-    def create_product(product: ProductCreate) -> dict:
-        with connect(app.state.database) as cursor:
-            try:
-                cursor.execute(
-                    """INSERT INTO products (sku, name, category, price_cents, stock)
-                       VALUES (%(sku)s, %(name)s, %(category)s, %(price_cents)s, %(stock)s)""",
-                    product.model_dump(),
-                )
-            except IntegrityError as error:
-                if error.args[0] == ER.DUP_ENTRY:
-                    raise HTTPException(409, "A product with this SKU already exists.") from error
-                raise
-            cursor.execute("SELECT * FROM products WHERE id = %s", (cursor.lastrowid,))
-            return cursor.fetchone()
-
-    @app.patch("/api/products/{product_id}/stock", response_model=Product)
-    def update_stock(product_id: int, update: StockUpdate) -> dict:
-        with connect(app.state.database) as cursor:
-            cursor.execute("SELECT id FROM products WHERE id = %s FOR UPDATE", (product_id,))
-            if cursor.fetchone() is None:
-                raise HTTPException(404, "Product not found.")
-            cursor.execute(
-                "UPDATE products SET stock = %s WHERE id = %s", (update.stock, product_id)
-            )
-            cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
-            return cursor.fetchone()
-
-    @app.post("/api/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
-    def checkout(checkout: Checkout) -> dict:
+    @app.post("/api/orders", response_model=Order, status_code=201)
+    def checkout(checkout: Checkout, user: SalesUser):
         fingerprint = json.dumps(
             {
+                "user_id": user.id,
                 "payment_method": checkout.payment_method,
                 "items": sorted(
                     [item.model_dump() for item in checkout.items],
@@ -101,70 +70,108 @@ def create_app(database_config: DatabaseConfig | None = None) -> FastAPI:
             sort_keys=True,
         )
         with connect(app.state.database) as cursor:
-            # Reserve the unique retry key before locking stock. The total is
-            # finalized in the same transaction, or the whole sale is rolled back.
+            lock_progress(cursor)
             try:
                 cursor.execute(
                     """INSERT INTO orders
-                       (idempotency_key, fingerprint, payment_method, total_cents)
-                       VALUES (%s, %s, %s, 0)""",
-                    (str(checkout.idempotency_key), fingerprint, checkout.payment_method),
+                       (idempotency_key, fingerprint, user_id, payment_method, total_cents)
+                       VALUES (%s, %s, %s, %s, 0)""",
+                    (str(checkout.idempotency_key), fingerprint, user.id, checkout.payment_method),
                 )
             except IntegrityError as error:
                 if error.args[0] != ER.DUP_ENTRY:
                     raise
                 cursor.execute(
-                    "SELECT id, fingerprint FROM orders WHERE idempotency_key = %s",
+                    "SELECT id, fingerprint, user_id FROM orders WHERE idempotency_key = %s",
                     (str(checkout.idempotency_key),),
                 )
                 existing = cursor.fetchone()
                 if existing is None:
                     raise
-                if existing["fingerprint"] != fingerprint:
-                    raise HTTPException(409, "This checkout key was used for a different cart.") from error
-                return read_order(cursor, existing["id"])
+                if existing["user_id"] != user.id or existing["fingerprint"] != fingerprint:
+                    raise HTTPException(409, "This checkout key was already used for a different order.") from error
+                return read_order(cursor, existing["id"], user)
             order_id = cursor.lastrowid
-
-            total_cents = 0
-            # A consistent lock order prevents deadlocks for overlapping carts.
-            for item in sorted(checkout.items, key=lambda item: item.product_id):
-                cursor.execute(
-                    "SELECT * FROM products WHERE id = %s FOR UPDATE", (item.product_id,)
-                )
-                product = cursor.fetchone()
-                if product is None:
-                    raise HTTPException(404, f"Product {item.product_id} not found.")
-                if product["stock"] < item.quantity:
-                    raise HTTPException(409, f"Not enough stock for {product['name']}.")
-                total_cents += product["price_cents"] * item.quantity
-                cursor.execute(
-                    "UPDATE products SET stock = stock - %s WHERE id = %s",
-                    (item.quantity, product["id"]),
-                )
-                cursor.execute(
-                    """INSERT INTO order_items
-                       (order_id, product_id, name, quantity, unit_price_cents)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (order_id, product["id"], product["name"], item.quantity, product["price_cents"]),
-                )
-            cursor.execute(
-                "UPDATE orders SET total_cents = %s WHERE id = %s", (total_cents, order_id)
-            )
-            return read_order(cursor, order_id)
+            total = replace_items(cursor, order_id, checkout.items, [])
+            cursor.execute("UPDATE orders SET total_cents = %s WHERE id = %s", (total, order_id))
+            record_progress(cursor, order_id, "placed", 1, user.id)
+            return read_order(cursor, order_id, user)
 
     @app.get("/api/orders", response_model=list[Order])
-    def orders(limit: Annotated[int, Query(ge=1, le=100)] = 50) -> list[dict]:
+    def orders(
+        user: CurrentUser,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ):
         with connect(app.state.database) as cursor:
-            cursor.execute("SELECT id FROM orders ORDER BY id DESC LIMIT %s", (limit,))
+            if user.role in {"admin", "kitchen"}:
+                cursor.execute("SELECT id FROM orders ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset))
+            else:
+                cursor.execute(
+                    "SELECT id FROM orders WHERE user_id = %s ORDER BY id DESC LIMIT %s OFFSET %s",
+                    (user.id, limit, offset),
+                )
             ids = cursor.fetchall()
-            return [read_order(cursor, row["id"]) for row in ids]
+            return [read_order(cursor, row["id"], user) for row in ids]
 
     @app.get("/api/orders/{order_id}", response_model=Order)
-    def order(order_id: int) -> dict:
+    def order(order_id: int, user: CurrentUser):
         with connect(app.state.database) as cursor:
-            return read_order(cursor, order_id)
+            return read_order(cursor, order_id, user)
+
+    def lock_order(cursor, order_id: int, expected_version: int):
+        lock_progress(cursor)
+        cursor.execute("SELECT id, status, kitchen_status, version FROM orders WHERE id = %s FOR UPDATE", (order_id,))
+        order = cursor.fetchone()
+        if order is None:
+            raise HTTPException(404, "Order not found.")
+        if order["version"] != expected_version:
+            raise HTTPException(409, "This order changed. Refresh it before trying again.")
+        if order["status"] == "cancelled":
+            raise HTTPException(409, "A cancelled order cannot be changed.")
+        if order["kitchen_status"] == "collected":
+            raise HTTPException(409, "A collected order cannot be changed or cancelled.")
+        return order
+
+    @app.put("/api/orders/{order_id}", response_model=Order)
+    def update_order(order_id: int, fields: OrderUpdate, admin: AdminUser):
+        with connect(app.state.database) as cursor:
+            locked = lock_order(cursor, order_id, fields.expected_version)
+            if locked["kitchen_status"] != "placed":
+                raise HTTPException(409, "The kitchen has accepted this order. Its items and payment can no longer be edited.")
+            existing = read_order(cursor, order_id, admin)
+            total = replace_items(cursor, order_id, fields.items, existing["items"])
+            cursor.execute(
+                """UPDATE orders SET total_cents = %s, payment_method = %s,
+                   version = version + 1 WHERE id = %s""",
+                (total, fields.payment_method, order_id),
+            )
+            record_progress(cursor, order_id, "placed", fields.expected_version + 1, admin.id)
+            return read_order(cursor, order_id, admin)
+
+    @app.post("/api/orders/{order_id}/cancel", response_model=Order)
+    def cancel_order(order_id: int, fields: OrderCancel, admin: AdminUser):
+        with connect(app.state.database) as cursor:
+            lock_order(cursor, order_id, fields.expected_version)
+            existing = read_order(cursor, order_id, admin)
+            replace_items(cursor, order_id, [], existing["items"])
+            # Keep the original receipt lines and total as cancellation history.
+            cursor.executemany(
+                """INSERT INTO order_items
+                   (order_id, product_id, name, quantity, unit_price_cents)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                [(order_id, item["product_id"], item["name"], item["quantity"], item["unit_price_cents"])
+                 for item in existing["items"]],
+            )
+            cursor.execute(
+                "UPDATE orders SET status = 'cancelled', kitchen_status = 'cancelled', version = version + 1 WHERE id = %s",
+                (order_id,),
+            )
+            record_progress(cursor, order_id, "cancelled", fields.expected_version + 1, admin.id)
+            return read_order(cursor, order_id, admin)
 
     return app
 
 
 app = create_app()
+

@@ -15,6 +15,7 @@ export function createCheckoutKey() {
 
 export async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, {
+    credentials: "same-origin",
     ...options,
     headers: { "Content-Type": "application/json", ...options.headers },
   });
@@ -24,8 +25,11 @@ export async function api(path, options = {}) {
     const message = Array.isArray(detail)
       ? detail.map((error) => `${error.loc.slice(1).join(".")}: ${error.msg}`).join("; ")
       : detail;
-    throw new Error(message || `Request failed (${response.status}). Please try again.`);
+    const error = new Error(message || `Request failed (${response.status}). Please try again.`);
+    error.status = response.status;
+    throw error;
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
