@@ -4,8 +4,8 @@ services:
     environment:
       MYSQL_DATABASE: pos
       MYSQL_USER: pos
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_PASSWORD: "public-demo-pos"
+      MYSQL_ROOT_PASSWORD: "public-demo-root"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -23,7 +23,7 @@ services:
       MYSQL_PORT: "3306"
       MYSQL_DATABASE: pos
       MYSQL_USER: pos
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_PASSWORD: "public-demo-pos"
     depends_on:
       mysql:
         condition: service_healthy
@@ -40,7 +40,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     depends_on:
       backend:
         condition: service_healthy
@@ -51,6 +51,9 @@ services:
       retries: 3
     restart: unless-stopped
 
-volumes:
   mysql-data:
+<<<<<<< HEAD
   
+=======
+
+>>>>>>> c4a7400 (Modified application)

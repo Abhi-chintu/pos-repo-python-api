@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, money } from "./api.js";
+import { api, createCheckoutKey, money } from "./api.js";
 
 const categoryMark = { Coffee: "CO", Tea: "TE", Bakery: "BA", Food: "FO" };
 
@@ -145,7 +145,7 @@ export default function App() {
     setError("");
     let completed;
     try {
-      checkoutKey.current ||= crypto.randomUUID();
+      checkoutKey.current ||= createCheckoutKey();
       completed = await api("/orders", {
         method: "POST",
         body: JSON.stringify({ items: cart, payment_method: payment, idempotency_key: checkoutKey.current }),
@@ -315,3 +315,4 @@ export default function App() {
     </div>
   );
 }
+
