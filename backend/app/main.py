@@ -2,8 +2,6 @@ import json
 from typing import Annotated
 
 from fastapi import HTTPException, Query
-from pymysql import IntegrityError
-from pymysql.constants import ER
 from pymysql.cursors import DictCursor
 
 from app.database import DatabaseConfig, connect
@@ -58,9 +56,19 @@ def create_app(database_config: DatabaseConfig | None = None):
 
     @app.post("/api/orders", response_model=Order, status_code=201)
     def checkout(checkout: Checkout, user: SalesUser):
+        if user.role == "admin":
+            customer_id = checkout.customer_id
+            if customer_id is None or customer_id == user.id:
+                raise HTTPException(422, "Select an active customer before placing the order.")
+        else:
+            if "customer_id" in checkout.model_fields_set:
+                raise HTTPException(403, "Customers can only place orders for themselves.")
+            customer_id = user.id
+
         fingerprint = json.dumps(
             {
-                "user_id": user.id,
+                "user_id": customer_id,
+                **({"placed_by": user.id} if user.role == "admin" else {}),
                 "payment_method": checkout.payment_method,
                 "items": sorted(
                     [item.model_dump() for item in checkout.items],
@@ -71,26 +79,30 @@ def create_app(database_config: DatabaseConfig | None = None):
         )
         with connect(app.state.database) as cursor:
             lock_progress(cursor)
-            try:
-                cursor.execute(
-                    """INSERT INTO orders
-                       (idempotency_key, fingerprint, user_id, payment_method, total_cents)
-                       VALUES (%s, %s, %s, %s, 0)""",
-                    (str(checkout.idempotency_key), fingerprint, user.id, checkout.payment_method),
-                )
-            except IntegrityError as error:
-                if error.args[0] != ER.DUP_ENTRY:
-                    raise
-                cursor.execute(
-                    "SELECT id, fingerprint, user_id FROM orders WHERE idempotency_key = %s",
-                    (str(checkout.idempotency_key),),
-                )
-                existing = cursor.fetchone()
-                if existing is None:
-                    raise
-                if existing["user_id"] != user.id or existing["fingerprint"] != fingerprint:
-                    raise HTTPException(409, "This checkout key was already used for a different order.") from error
+            key = str(checkout.idempotency_key)
+            cursor.execute(
+                "SELECT id, fingerprint, user_id FROM orders WHERE idempotency_key = %s", (key,),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                if existing["user_id"] != customer_id or existing["fingerprint"] != fingerprint:
+                    raise HTTPException(409, "This checkout key was already used for a different order.")
                 return read_order(cursor, existing["id"], user)
+
+            if user.role == "admin":
+                cursor.execute(
+                    "SELECT id FROM users WHERE id = %s AND role = 'customer' AND active = TRUE FOR UPDATE",
+                    (customer_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise HTTPException(422, "The selected customer is no longer available. Reload customers and choose again.")
+
+            cursor.execute(
+                """INSERT INTO orders
+                   (idempotency_key, fingerprint, user_id, payment_method, total_cents)
+                   VALUES (%s, %s, %s, %s, 0)""",
+                (key, fingerprint, customer_id, checkout.payment_method),
+            )
             order_id = cursor.lastrowid
             total = replace_items(cursor, order_id, checkout.items, [])
             cursor.execute("UPDATE orders SET total_cents = %s WHERE id = %s", (total, order_id))

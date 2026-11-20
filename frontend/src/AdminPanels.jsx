@@ -199,7 +199,7 @@ export function UsersPanel({ currentUser, onSelfChanged, onUnauthorized }) {
               <td className="capitalize">{user.role}</td><td>{user.active ? "Active" : "Inactive"}</td>
               <td><div className="row-actions">
                 <button className="button secondary small" disabled={busy} onClick={() => { setEditing(user); setFormKey((key) => key + 1); }}>Edit</button>
-                <button className="button danger small" disabled={busy || !user.active} onClick={() => setDeactivating(user)}>Deactivate</button>
+                <button className="button danger small" disabled={busy || !user.active} onClick={() => setDeactivating(user)}>Delete</button>
               </div></td>
             </tr>)}</tbody>
           </table>
@@ -214,16 +214,16 @@ export function UsersPanel({ currentUser, onSelfChanged, onUnauthorized }) {
         <h2>{editing ? "Edit user" : "Create user"}</h2>
         <label>Name<input name="name" required maxLength="100" defaultValue={editing?.name || ""} disabled={busy} /></label>
         <label>Email<input name="email" type="email" required maxLength="254" defaultValue={editing?.email || ""} disabled={busy} /></label>
-        <label>{editing ? "New password (optional)" : "Password"}<input name="password" type="password" minLength="10" maxLength="128" required={!editing} autoComplete="new-password" disabled={busy} /></label>
+        <label>{editing ? "New password (optional)" : "Password"}<input name="password" type="password" minLength="8" maxLength="128" required={!editing} autoComplete="new-password" disabled={busy} /></label>
         <label>Role<select name="role" defaultValue={editing?.role || "customer"} disabled={busy}><option value="customer">Customer</option><option value="kitchen">Kitchen</option><option value="admin">Admin</option></select></label>
         {editing && <label>Status<select name="active" defaultValue={String(editing.active)} disabled={busy}><option value="true">Active</option><option value="false">Inactive</option></select></label>}
         <button className="button primary" disabled={busy}>{busy ? "Saving..." : editing ? "Save user" : "Create user"}</button>
         {editing && <button className="button secondary" type="button" disabled={busy} onClick={() => { setEditing(null); setFormKey((key) => key + 1); }}>Cancel edit</button>}
       </form>
     </div>
-    {deactivating && <ConfirmationDialog title="Deactivate user?"
-      message={`Deactivate ${deactivating.email}? Existing sessions will be revoked.`}
-      confirmLabel="Deactivate user" onConfirm={() => deactivate(deactivating)}
+    {deactivating && <ConfirmationDialog title="Delete user?"
+      message={`Delete ${deactivating.email}? This deactivates the account and signs the user out. Existing orders and receipts are kept.`}
+      confirmLabel="Delete user" onConfirm={() => deactivate(deactivating)}
       onClose={() => setDeactivating(null)} onUnauthorized={onUnauthorized} />}
   </div>;
 }

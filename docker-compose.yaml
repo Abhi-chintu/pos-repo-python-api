@@ -26,8 +26,8 @@ services:
       MYSQL_USER: pos
       MYSQL_PASSWORD: "public-demo-pos"
       # Public demo admin only. Supply environment overrides for non-demo use.
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Public-Demo-Admin-2026}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@gmail.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     depends_on:
       mysql:

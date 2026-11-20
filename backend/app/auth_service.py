@@ -6,7 +6,7 @@ from pymysql import IntegrityError
 from pymysql.constants import ER
 
 from app.database import DatabaseConfig, connect, initialize
-from app.schemas import Login, Registration, User, UserCreate, UserUpdate
+from app.schemas import CustomerOption, Login, Registration, User, UserCreate, UserUpdate
 from app.security import (
     AdminUser, CurrentUser, SESSION_COOKIE, hash_password, set_session, token_hash,
     verify_password,
@@ -89,6 +89,14 @@ def create_app(config: DatabaseConfig | None = None):
     ):
         with connect(app.state.database) as cursor:
             cursor.execute(f"SELECT {USER_COLUMNS} FROM users ORDER BY id LIMIT %s OFFSET %s", (limit, offset))
+            return list(cursor.fetchall())
+
+    @app.get("/api/users/customers", response_model=list[CustomerOption])
+    def customers(admin: AdminUser):
+        with connect(app.state.database) as cursor:
+            cursor.execute(
+                "SELECT id, name, email FROM users WHERE role = 'customer' AND active = TRUE ORDER BY name, email"
+            )
             return list(cursor.fetchall())
 
     @app.post("/api/users", response_model=User, status_code=201)

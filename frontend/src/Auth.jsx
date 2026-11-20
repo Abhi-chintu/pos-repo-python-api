@@ -29,14 +29,14 @@ export default function Auth({ onAuthenticated, initialError = "" }) {
         <div className="auth-brand"><span className="brand-mark">c.</span><h1>counter.</h1></div>
         <p className="eyebrow">{registering ? "YOUR NEXT GOOD ORDER STARTS HERE" : "WELCOME BACK"}</p>
         <h2>{registering ? "Create your account" : "Log in to Counter"}</h2>
-        <p className="muted">{registering ? "Register to browse the menu and place your own orders." : "Customers and administrators use the same login."}</p>
+        <p className="muted">{registering ? "Register to browse the menu and place your own orders." : "Kindly login to experience best service."}</p>
         {error && <div role="alert" className="error-banner">{error}</div>}
         <form onSubmit={submit} className="stack-form" key={registering ? "register" : "login"}>
           {registering && <label>Name<input name="name" required maxLength="100" autoComplete="name" disabled={busy} /></label>}
           <label>Email<input name="email" type="email" required maxLength="254" autoComplete="username" disabled={busy} /></label>
-          <label>Password<input name="password" type="password" required minLength={registering ? 10 : 1}
+          <label>Password<input name="password" type="password" required minLength={registering ? 8 : 1}
             maxLength="128" autoComplete={registering ? "new-password" : "current-password"} disabled={busy} /></label>
-          {registering && <p className="muted">Use at least 10 characters. Registration creates a customer account.</p>}
+          {registering && <p className="muted">Use at least 8 characters. Registration creates a customer account.</p>}
           <button className="button primary full" disabled={busy}>{busy ? "Please wait..." : registering ? "Create account" : "Log in"}</button>
         </form>
         <button className="clear-cart" disabled={busy} onClick={() => {

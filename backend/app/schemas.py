@@ -66,6 +66,13 @@ class OrderContents(BaseModel):
 
 class Checkout(OrderContents):
     idempotency_key: UUID
+    customer_id: Annotated[int, Field(strict=True, gt=0)] | None = None
+
+
+class CustomerOption(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
 
 
 class OrderUpdate(OrderContents):
@@ -124,7 +131,7 @@ class Order(BaseModel):
     progress: list[OrderProgress]
 
 
-Password = Annotated[str, StringConstraints(min_length=10, max_length=128)]
+Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
 Role = Literal["admin", "customer", "kitchen"]
 
 
