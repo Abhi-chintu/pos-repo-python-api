@@ -1,0 +1,14 @@
+{{- $name := include "pos-backend.name" (dict "root" . "key" "kitchen") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name | quote }}
+spec:
+  type: {{ .Values.kitchen.service.type | quote }}
+  ports:
+    - name: http
+      port: {{ .Values.kitchen.service.port }}
+      targetPort: http
+  selector:
+    app: {{ $name | quote }}
+

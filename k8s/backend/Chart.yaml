@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pos-backend
+description: Auth, products, orders and kitchen APIs for Counter POS
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+

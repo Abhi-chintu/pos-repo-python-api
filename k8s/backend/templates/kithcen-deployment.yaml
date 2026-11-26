@@ -1,0 +1,51 @@
+{{- $name := include "pos-backend.name" (dict "root" . "key" "kitchen") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name | quote }}
+spec:
+  replicas: {{ .Values.kitchen.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ $name | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name | quote }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: kitchen
+          image: "{{ .Values.kitchen.image.repository }}:{{ .Values.kitchen.image.tag }}"
+          imagePullPolicy: {{ .Values.kitchen.image.pullPolicy | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.kitchen.service.targetPort }}
+          env:
+            - name: UVICORN_PORT
+              value: {{ .Values.kitchen.service.targetPort | quote }}
+            - name: MYSQL_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: MYSQL_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.keys.database | quote }}
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.keys.username | quote }}
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.keys.password | quote }}
+          resources:
+            {{- toYaml .Values.kitchen.resources | nindent 12 }}
+

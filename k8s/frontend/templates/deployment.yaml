@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name | quote }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name | quote }}
+      annotations:
+        checksum/nginx: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: frontend
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ printf "%s-nginx" .Values.name | quote }}
+

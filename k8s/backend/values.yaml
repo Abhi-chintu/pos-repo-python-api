@@ -1,0 +1,67 @@
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+auth:
+  replicaCount: 1
+  image:
+    repository: your-registry/pos-auth
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  resources: {}
+
+products:
+  replicaCount: 1
+  image:
+    repository: your-registry/pos-products
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  resources: {}
+
+orders:
+  replicaCount: 1
+  image:
+    repository: your-registry/pos-orders
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  resources: {}
+
+kitchen:
+  replicaCount: 1
+  image:
+    repository: your-registry/pos-kitchen
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  resources: {}
+
+database:
+  host: mysql
+  port: 3306
+  existingSecret: mysql-auth
+  keys:
+    database: MYSQL_DATABASE
+    username: MYSQL_USER
+    password: MYSQL_PASSWORD
+
+admin:
+  # Public demo bootstrap values; use secure credentials for real accounts.
+  email: admin@gmail.com
+  password: admin123
+  cookieSecure: false
+

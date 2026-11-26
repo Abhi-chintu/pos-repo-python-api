@@ -1,0 +1,14 @@
+{{- $name := include "pos-backend.name" (dict "root" . "key" "orders") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name | quote }}
+spec:
+  type: {{ .Values.orders.service.type | quote }}
+  ports:
+    - name: http
+      port: {{ .Values.orders.service.port }}
+      targetPort: http
+  selector:
+    app: {{ $name | quote }}
+

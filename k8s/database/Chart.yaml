@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pos-database
+description: MySQL database for Counter POS
+type: application
+version: 0.1.0
+appVersion: "8.4"
+

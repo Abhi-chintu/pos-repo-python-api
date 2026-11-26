@@ -1,0 +1,31 @@
+name: frontend
+replicas: 1
+
+image:
+  # Replace with an image accessible to your cluster nodes.
+  repository: your-registry/pos-frontend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: NodePort
+  port: 8080
+  targetPort: 8080
+  # Optional: set a NodePort within the cluster's configured range.
+  nodePort: null
+
+upstreams:
+  auth:
+    host: auth
+    port: 8000
+  products:
+    host: products
+    port: 8000
+  orders:
+    host: orders
+    port: 8000
+  kitchen:
+    host: kitchen
+    port: 8000
+
+

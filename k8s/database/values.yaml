@@ -1,0 +1,31 @@
+name: mysql
+headlessServiceName: mysql-headless
+
+image:
+  repository: mysql
+  tag: "8.4"
+  pullPolicy: IfNotPresent
+
+database:
+  existingSecret: mysql-auth
+  keys:
+    database: MYSQL_DATABASE
+    username: MYSQL_USER
+    password: MYSQL_PASSWORD
+    rootPassword: MYSQL_ROOT_PASSWORD
+
+service:
+  type: ClusterIP
+  port: 3306
+  targetPort: 3306
+
+persistence:
+  # StatefulSet creates one claim per pod; changing this name creates a new claim.
+  claimTemplateName: mysql-data
+  size: 8Gi
+  # Empty uses the cluster's default StorageClass.
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  mountPath: /var/lib/mysql
+
+
